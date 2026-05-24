@@ -4,6 +4,8 @@ A tiny native macOS SwiftUI app that fixes intermittently slow Wi-Fi with one cl
 
 No third-party dependencies. Single Swift file. Universal binary (Apple Silicon + Intel).
 
+> **In a hurry?** See [docs/QUICKSTART.md](docs/QUICKSTART.md) — install, use, troubleshoot in 60 seconds.
+
 ## Why
 
 You know the situation: your Wi-Fi is technically connected, but everything is crawling. Toggling Wi-Fi off and on from the menu bar usually helps — but sometimes it doesn't, and you end up doing the full ritual in Terminal:
