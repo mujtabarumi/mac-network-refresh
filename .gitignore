@@ -1,0 +1,19 @@
+# Build artifacts
+Refresh Network.app/
+*.app/
+build/
+DerivedData/
+*.dSYM/
+
+# macOS
+.DS_Store
+
+# Editor / tooling
+.claude/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temp logs the app writes during runs
+/tmp/refresh-network-*.log
