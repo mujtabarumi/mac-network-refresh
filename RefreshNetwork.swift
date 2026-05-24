@@ -53,7 +53,6 @@ final class RefreshViewModel: ObservableObject {
         Step(title: "Disconnect Wi-Fi"),
         Step(title: "Flush DNS cache"),
         Step(title: "Reconnect Wi-Fi"),
-        Step(title: "Renew DHCP lease"),
         Step(title: "Verify connection"),
     ]
     @Published var status: String = "Ready. Click Start to refresh your network."
@@ -82,7 +81,6 @@ final class RefreshViewModel: ObservableObject {
     private func runRefresh() async {
         let logPath = "/tmp/refresh-network-\(UUID().uuidString).log"
         FileManager.default.createFile(atPath: logPath, contents: Data(), attributes: [.posixPermissions: 0o666])
-        defer { try? FileManager.default.removeItem(atPath: logPath) }
 
         let script = Self.buildShellScript(logPath: logPath)
 
@@ -91,29 +89,55 @@ final class RefreshViewModel: ObservableObject {
             await self?.tailProgress(file: logPath)
         }
 
-        // Run the privileged shell in background
+        // Run the privileged shell in background (NSAppleScript → SecurityAgent
+        // password dialog). On macOS 26 Tahoe this dialog is password-only;
+        // Touch ID would require a Developer-ID-signed app + SMAppService helper,
+        // which is out of scope for this single-file utility.
         let result = await Task.detached(priority: .userInitiated) {
             Self.runAdminAppleScript(shellScript: script)
         }.value
 
         tail.cancel()
         // Final sweep to catch the last few lines written between last poll and exit
-        if let final = try? String(contentsOfFile: logPath, encoding: .utf8) {
-            processProgressChunk(final, fromOffset: 0, allowReprocess: true)
+        let finalLog = (try? String(contentsOfFile: logPath, encoding: .utf8)) ?? ""
+        if !finalLog.isEmpty {
+            processProgressChunk(finalLog, fromOffset: 0, allowReprocess: true)
         }
 
         if result.cancelled {
             status = "Authentication cancelled."
             runState = .cancelled
+            try? FileManager.default.removeItem(atPath: logPath)
             return
         }
         if result.errored && detectedIP.isEmpty {
             status = "Could not run privileged refresh. Try again."
             runState = .error
+            Self.persistDiagnosticLog(content: finalLog)
+            try? FileManager.default.removeItem(atPath: logPath)
             return
         }
 
         finalize()
+        // Keep a diagnostic copy when something went wrong so the user can share it.
+        let anyError = steps.contains { $0.state == .error }
+        if anyError {
+            Self.persistDiagnosticLog(content: finalLog)
+        }
+        try? FileManager.default.removeItem(atPath: logPath)
+    }
+
+    /// Writes the final log to ~/Library/Logs/RefreshNetwork-<timestamp>.log
+    /// when a run errors, so the user has something concrete to share.
+    nonisolated private static func persistDiagnosticLog(content: String) {
+        guard !content.isEmpty else { return }
+        let fm = FileManager.default
+        guard let home = fm.urls(for: .libraryDirectory, in: .userDomainMask).first else { return }
+        let logsDir = home.appendingPathComponent("Logs", isDirectory: true)
+        try? fm.createDirectory(at: logsDir, withIntermediateDirectories: true)
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let dest = logsDir.appendingPathComponent("RefreshNetwork-\(stamp).log")
+        try? content.write(to: dest, atomically: true, encoding: .utf8)
     }
 
     private func finalize() {
@@ -134,7 +158,10 @@ final class RefreshViewModel: ObservableObject {
             status = "Done."
             runState = .done
         }
-        for i in 0..<steps.count where steps[i].state == .pending {
+        // Backfill anything still mid-flight to error. Without catching .running
+        // here, a script that dies after STEP_N_START but before STEP_N=… leaves
+        // the row stuck on the spinner forever — confusing UI.
+        for i in 0..<steps.count where steps[i].state == .pending || steps[i].state == .running {
             steps[i].state = .error
         }
         progress = Double(steps.count)
@@ -176,7 +203,10 @@ final class RefreshViewModel: ObservableObject {
         let key = String(line[..<eq])
         let value = String(line[line.index(after: eq)...])
 
-        if !allowReprocess {
+        // STATUS messages must NOT be deduped — they change throughout the run
+        // and the user expects live updates. Step markers stay deduped so we
+        // don't re-apply STEPx_START after STEPx has resolved.
+        if !allowReprocess && key != "STATUS" {
             if processedKeys.contains(key) { return }
             processedKeys.insert(key)
         }
@@ -186,12 +216,10 @@ final class RefreshViewModel: ObservableObject {
         case "STEP2_START": setStep(1, .running)
         case "STEP3_START": setStep(2, .running)
         case "STEP4_START": setStep(3, .running)
-        case "STEP5_START": setStep(4, .running)
         case "STEP1": applyResult(0, value: value)
         case "STEP2": applyResult(1, value: value)
         case "STEP3": applyResult(2, value: value)
         case "STEP4": applyResult(3, value: value)
-        case "STEP5": applyResult(4, value: value)
         case "STATUS":    status = value
         case "IP":        detectedIP = value
         case "TARGET":    targetInterface = value
@@ -231,6 +259,12 @@ final class RefreshViewModel: ObservableObject {
 set +e
 LOG="\(logPath)"
 emit() { printf '%s\\n' "$1" >> "$LOG"; }
+
+# Diagnostic: emit script exit reason so we can tell completion from an early death.
+# A successful end emits SCRIPT_END=ok. A trap-fired exit emits the bash exit code.
+trap 'emit "SCRIPT_END=trap_$?"' EXIT
+trap 'emit "SCRIPT_END=signal_INT"; exit 130' INT
+trap 'emit "SCRIPT_END=signal_TERM"; exit 143' TERM
 
 emit "STATUS=Detecting interfaces…"
 WIFI=$(networksetup -listallhardwareports | awk '/Hardware Port: Wi-Fi/{getline; print $2; exit}')
@@ -295,8 +329,11 @@ else
   emit "STEP3=skipped"
 fi
 
-# Decide which interface step 4/5 should target.
+# Decide which interface to verify against.
 # Priority: current default route → freshly-reconnected Wi-Fi → nothing.
+# (Wi-Fi reconnection in step 3 already triggers DHCP automatically — no
+#  explicit renew needed. Cycling Wi-Fi is the actual fix; DHCP renew was
+#  cargo-cult and caused stale "No Internet" badges via the BOOTP release.)
 TARGET=""
 NEW_ROUTE=$(route get default 2>/dev/null | awk '/interface:/{print $2}')
 if [ -n "$NEW_ROUTE" ]; then
@@ -305,34 +342,8 @@ elif [ "$WIFI_CONNECTED" = "yes" ]; then
   TARGET="$WIFI"
 fi
 
-# Step 4: DHCP release + renew (with one retry on transient failure)
-# `ipconfig set <iface> BOOTP` clears the current DHCP lease without dropping
-# the link; setting back to DHCP requests a fresh lease from the server.
+# Step 4: Verify — IP + actual internet reachability + DNS resolution
 emit "STEP4_START=1"
-if [ -n "$TARGET" ]; then
-  emit "STATUS=Releasing & renewing DHCP on $TARGET…"
-  RENEW_OK="no"
-  for attempt in 1 2; do
-    if ipconfig set "$TARGET" BOOTP 2>/dev/null; then
-      sleep 1
-      if ipconfig set "$TARGET" DHCP 2>/dev/null; then
-        RENEW_OK="yes"
-        break
-      fi
-    fi
-    [ "$attempt" = "1" ] && sleep 2
-  done
-  if [ "$RENEW_OK" = "yes" ]; then
-    emit "STEP4=done"
-  else
-    emit "STEP4=error"
-  fi
-else
-  emit "STEP4=skipped"
-fi
-
-# Step 5: Verify — IP + actual internet reachability + DNS resolution
-emit "STEP5_START=1"
 IP=""
 if [ -n "$TARGET" ]; then
   emit "STATUS=Waiting for IP on $TARGET…"
@@ -363,12 +374,13 @@ emit "REACHABLE=$REACHABLE"
 emit "DNS_OK=$DNS_OK"
 
 if [ -n "$IP" ] && [ "$REACHABLE" = "yes" ] && [ "$DNS_OK" = "yes" ]; then
-  emit "STEP5=done"
+  emit "STEP4=done"
 else
   # Got IP but no reachability OR no DNS OR no IP at all — mark as error
   # so the final status surfaces the partial-success honestly.
-  emit "STEP5=error"
+  emit "STEP4=error"
 fi
+emit "SCRIPT_END=ok"
 """
     }
 
@@ -376,7 +388,14 @@ fi
         let escaped = shellScript
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
-        let source = "do shell script \"\(escaped)\" with administrator privileges"
+        // Wrap in `with timeout` — default AppleScript timeout is 120s,
+        // which can bite if step 3's association poll + DHCP + verify all run long.
+        // 180s is a generous upper bound for the full flow.
+        let source = """
+        with timeout of 180 seconds
+            do shell script "\(escaped)" with administrator privileges
+        end timeout
+        """
 
         guard let script = NSAppleScript(source: source) else {
             return ("", false, true)
@@ -393,6 +412,7 @@ fi
         }
         return (result.stringValue ?? "", false, false)
     }
+
 }
 
 // MARK: - View

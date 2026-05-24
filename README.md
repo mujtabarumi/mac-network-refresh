@@ -22,13 +22,12 @@ ping -c 1 1.1.1.1
 
 This app is that ritual, with one Cmd-Space "Refresh Network ↵" and one password prompt.
 
-## What it does (5 steps, ~15 seconds total)
+## What it does (4 steps, ~10 seconds total)
 
 1. **Disconnect Wi-Fi** — `networksetup -setairportpower <iface> off`, then waits 5s for the Mac to fully release the interface.
 2. **Flush DNS cache** — `dscacheutil -flushcache` + `killall -HUP mDNSResponder`.
-3. **Reconnect Wi-Fi** — turns the radio back on, then polls `ifconfig <iface> | status: active` (up to 25s) for actual L2 association. Silently re-flushes DNS once the link is up.
-4. **Renew DHCP lease** — release-then-renew on the active interface (`ipconfig set <iface> BOOTP` → `DHCP`), with one retry on transient failure.
-5. **Verify connection** — waits up to 20s for an IP, then pings `1.1.1.1` and queries `example.com` via `dig` to confirm both reachability and DNS actually work.
+3. **Reconnect Wi-Fi** — turns the radio back on, then polls `ifconfig <iface> | status: active` (up to 25s) for actual L2 association. Silently re-flushes DNS once the link is up. macOS automatically negotiates a fresh DHCP lease as part of reassociation — no explicit renew step needed.
+4. **Verify connection** — waits up to 20s for an IP, then pings `1.1.1.1` and queries `example.com` via `dig` to confirm both reachability and DNS actually work.
 
 The final status reflects the truth:
 - ✅ **Connected and online — 192.168.1.91 on en0** — everything works

@@ -1,6 +1,7 @@
 # Build artifacts
 Refresh Network.app/
 *.app/
+*.app.zip
 build/
 DerivedData/
 *.dSYM/
