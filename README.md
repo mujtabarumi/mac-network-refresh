@@ -1,6 +1,6 @@
 # Refresh Network
 
-A tiny native macOS SwiftUI app that fixes intermittently slow Wi-Fi with one click — disconnects, flushes DNS, reconnects, renews the DHCP lease, then verifies that the internet actually works.
+A tiny native macOS SwiftUI app that fixes intermittently slow Wi-Fi with one click — disconnects, flushes DNS, reconnects, then verifies that the internet actually works (IP + ping + DNS resolution).
 
 No third-party dependencies. Single Swift file. Universal binary (Apple Silicon + Intel).
 
