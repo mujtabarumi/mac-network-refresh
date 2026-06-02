@@ -18,3 +18,8 @@ DerivedData/
 
 # Temp logs the app writes during runs
 /tmp/refresh-network-*.log
+
+# Generated icon artifacts (source of truth is make-icon.swift)
+icon-master.png
+AppIcon.icns
+AppIcon.iconset/

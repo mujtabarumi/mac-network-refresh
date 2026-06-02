@@ -421,6 +421,49 @@ struct ContentView: View {
     @StateObject private var vm = RefreshViewModel()
 
     var body: some View {
+        Group {
+            if vm.runState == .idle {
+                startScreen
+            } else {
+                progressScreen
+            }
+        }
+        .padding(24)
+        .frame(width: 460, height: 420)
+    }
+
+    // Initial screen: just the app identity and a centered Start button.
+    private var startScreen: some View {
+        VStack(spacing: 20) {
+            Spacer()
+
+            Image(systemName: "wifi.router.fill")
+                .font(.system(size: 56))
+                .foregroundStyle(.tint)
+
+            Text("Refresh Network")
+                .font(.title.bold())
+
+            Text(vm.status)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal)
+
+            Button("Start") { vm.start() }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .padding(.top, 4)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // Running / finished screen: live progress and the per-step checklist.
+    private var progressScreen: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Image(systemName: "wifi.router.fill")
@@ -485,8 +528,6 @@ struct ContentView: View {
                     .disabled(vm.runState == .running)
             }
         }
-        .padding(24)
-        .frame(width: 460, height: 420)
     }
 
     private var actionLabel: String {
