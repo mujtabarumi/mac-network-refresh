@@ -44,7 +44,7 @@ cd mac-network-refresh
 open "Refresh Network.app"
 ```
 
-Single Swift file (~530 lines), no dependencies, universal binary.
+Single Swift file (~570 lines), no dependencies, universal binary.
 
 ## Troubleshooting
 

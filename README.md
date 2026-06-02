@@ -73,14 +73,14 @@ Requires Xcode Command Line Tools (`xcode-select --install`). The build script:
 1. Open the app (Spotlight: `⌘Space` → "Refresh Network").
 2. Click **Start**.
 3. Enter your admin password.
-4. Watch the five steps tick through.
+4. Watch the four steps tick through.
 5. Click **OK** when the final state appears.
 
 For one-key triggering: System Settings → Keyboard → Keyboard Shortcuts → **App Shortcuts** → assign a hotkey to "Refresh Network".
 
 ## Architecture
 
-- **`RefreshNetwork.swift`** — entire app: SwiftUI views, `@MainActor` view model, `NSAppleScript`-driven privileged shell. Single file, ~450 lines.
+- **`RefreshNetwork.swift`** — entire app: SwiftUI views, `@MainActor` view model, `NSAppleScript`-driven privileged shell. Single file, ~570 lines.
 - **`build.sh`** — `swiftc -parse-as-library` build, `lipo` for universal binary, ad-hoc codesign.
 - **`Info.plist`** — bundle metadata.
 
@@ -116,7 +116,7 @@ Neither has been implemented here. PRs welcome.
 
 ## Contributing
 
-Pull requests welcome. Keep it boring: one file, no dependencies, no frameworks beyond SwiftUI + AppKit + Foundation.
+Pull requests welcome. Keep it boring: one file, no dependencies, no frameworks beyond SwiftUI + AppKit + Foundation. See [CONTRIBUTING.md](CONTRIBUTING.md) for the build, testing, and PR workflow.
 
 ## License
 
